@@ -13,7 +13,7 @@
 #define SSR_PIN 5
 #define TFT_LED_PIN 32
 #define WIFI_STATUS_PIN 17 //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
-// #define WIFI_AP_PIN 0 // pull down to force WIFI AP mode
+#define WIFI_AP_PIN 16	 // pull down to force WIFI AP mode
 
 // display coordinates
 #define CURRENT_TEMPERATURE_X 20
@@ -136,7 +136,8 @@ void down()
 	}
 }
 
-void wakeScreen() {
+void wakeScreen()
+{
 	digitalWrite(TFT_LED_PIN, HIGH);
 	_display_timer = DISPLAY_TIMOUT;
 }
@@ -263,15 +264,17 @@ void MQTT_callback(char *topic, byte *payload, unsigned int data_len)
 	{
 		String inString = data;
 		float target = inString.toFloat();
-		if (target < MIN_TEMPERATURE) {
+		if (target < MIN_TEMPERATURE)
+		{
 			_targetTemperature = MIN_TEMPERATURE;
 		}
-		else if (target > MAX_TEMPERATURE) {
+		else if (target > MAX_TEMPERATURE)
+		{
 			_targetTemperature = MAX_TEMPERATURE;
 		}
-		else {
+		else
+		{
 			_targetTemperature = target;
-
 		}
 		showTargetTemperature();
 		_setTemperatureChanged = true;
@@ -289,7 +292,7 @@ void runMQTT()
 		{
 			Serial.println("MQTT connected");
 			publish("DEVICE", "ONLINE");
-			char buf[STR_LEN*2];
+			char buf[STR_LEN * 2];
 			sprintf(buf, "/%s/cmnd/TEMPERATURE", _mqttRootTopic);
 			_MqttClient.subscribe(buf);
 			_MqttClient.setCallback(MQTT_callback);
@@ -397,13 +400,15 @@ void setup(void)
 	}
 	Serial.println();
 	Serial.println("Booting");
-
+	pinMode(WIFI_AP_PIN, INPUT_PULLUP);
+	pinMode(WIFI_STATUS_PIN, OUTPUT);
 	initTFT();
 	pinMode(SSR_PIN, OUTPUT);
 	setupTFT();
 
 	_iotWebConf.setStatusPin(WIFI_STATUS_PIN);
-	// iotWebConf.setConfigPin(WIFI_AP_PIN);
+	_iotWebConf.setConfigPin(WIFI_AP_PIN);
+
 	_iotWebConf.addParameter(&mqttServerParam);
 	_iotWebConf.addParameter(&mqttPortParam);
 	_iotWebConf.addParameter(&mqttUserNameParam);
@@ -417,11 +422,16 @@ void setup(void)
 	boolean validConfig = _iotWebConf.init();
 	if (!validConfig)
 	{
+		Serial.println("!invalid configuration!");
 		_mqttServer[0] = '\0';
 		_mqttPort[0] = '\0';
 		_mqttUserName[0] = '\0';
 		_mqttUserPassword[0] = '\0';
 		_mqttRootTopic[0] = '\0';
+	}
+	else
+	{
+		_iotWebConf.setApTimeoutMs(10000);
 	}
 
 	// -- Set up required URL handlers on the web server.
