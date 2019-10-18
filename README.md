@@ -1,7 +1,8 @@
 <h1>ESP32 thermostat</h1>
 
-![Alt text](http://graham22.github.io/ESPThermostat/Pictures/Display1.png)
-
+<p align="center">
+  <img src="./Pictures/Display1.png" width="640"/>
+</p>
 <p>
 The ESP Thermostat uses a ESP32-bit with an external antena, a 240 X 320 TFT touch display, and a 10K thermistor.
 The element is controled by a 40A Solid State Relay.
@@ -31,8 +32,9 @@ Development environment used is Visual Studio CODE with the following extensions
 
 </p>
 
-![Alt text](http://graham22.github.io/ESPThermostat/Pictures/SSR.png)
-
+<p align="center">
+  <img src="./Pictures/SSR.png" width="640"/>
+</p>
 
 ## License
 ```
