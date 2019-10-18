@@ -3,8 +3,36 @@
 ![Alt text](http://graham22.github.io/ESPThermostat/Pictures/Display1.png)
 
 <p>
+The ESP Thermostat uses a ESP32-bit with an external antena, a 240 X 320 TFT touch display, and a 10K thermistor.
+The element is controled by a 40A Solid State Relay.
+
+The thermostat includes support for MQTT.
+MQTT status;
+/<root_topic>/stat/TEMPERATURE {"CURRENT_TEMPERATURE":"21.1"}
+/<root_topic>/stat/TEMPERATURE {"SET_TEMPERATURE":"22.5"}
+/<root_topic>/stat/DEVICE ONLINE
+/<root_topic>/stat/HEAT OFF - ON
+
+MQTT commands
+/<root_topic>/cmnd/TEMPERATURE UP
+/<root_topic>/cmnd/TEMPERATURE DOWN
+/<root_topic>/cmnd/TEMPERATURE 21.5
 
 </p>
+
+<p>
+Development environment used is Visual Studio CODE with the following extensions
+<ul>
+<li>PlatformIO IDE</li>
+<li>C/C++</li>
+<li>Arduino</li>
+</ul>
+
+
+</p>
+
+![Alt text](http://graham22.github.io/ESPThermostat/Pictures/SSR.png)
+
 
 ## License
 ```
