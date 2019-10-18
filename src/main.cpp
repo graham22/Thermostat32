@@ -12,8 +12,8 @@
 #define THERMISTOR_POWER_PIN 25
 #define SSR_PIN 5
 #define TFT_LED_PIN 32
-#define WIFI_STATUS_PIN 17 //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
-#define WIFI_AP_PIN 16	 // pull down to force WIFI AP mode
+#define WIFI_STATUS_PIN 17  //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
+#define WIFI_AP_PIN 16		// pull down to force WIFI AP mode
 
 // display coordinates
 #define CURRENT_TEMPERATURE_X 20
@@ -30,6 +30,7 @@
 #define MIN_TEMPERATURE 10
 #define DISPLAY_TIMOUT 60
 #define STR_LEN IOTWEBCONF_WORD_LEN
+#define WATCHDOG_TIMER 5000 //time in ms to trigger the watchdog
 
 //WIFI
 // -- Configuration specific key. The value should be modified if config structure was changed.
@@ -57,6 +58,7 @@ IotWebConfParameter mqttUserNameParam = IotWebConfParameter("MQTT user", "mqttUs
 IotWebConfParameter mqttUserPasswordParam = IotWebConfParameter("MQTT password", "mqttPass", _mqttUserPassword, STR_LEN, "password");
 IotWebConfParameter mqttRootTopicParam = IotWebConfParameter("MQTT root topic", "mqttSRootTopic", _mqttRootTopic, STR_LEN);
 
+hw_timer_t *timer = NULL;
 ThreadController _controller = ThreadController();
 Thread *_workerThreadTFT = new Thread();
 Thread *_workerThreadHeat = new Thread();
@@ -74,6 +76,20 @@ const char S_JSON_COMMAND_NVALUE[] PROGMEM = "{\"%s\":%d}";
 const char S_JSON_COMMAND_LVALUE[] PROGMEM = "{\"%s\":%lu}";
 const char S_JSON_COMMAND_SVALUE[] PROGMEM = "{\"%s\":\"%s\"}";
 const char S_JSON_COMMAND_HVALUE[] PROGMEM = "{\"%s\":\"#%X\"}";
+
+void IRAM_ATTR resetModule()
+{
+	ets_printf("watchdog timer expired - rebooting\n");
+	esp_restart();
+}
+
+void init_watchdog()
+{
+	timer = timerBegin(0, 80, true);					  //timer 0, div 80
+	timerAttachInterrupt(timer, &resetModule, true);	  //attach callback
+	timerAlarmWrite(timer, WATCHDOG_TIMER * 1000, false); //set time in us
+	timerAlarmEnable(timer);							  //enable interrupt
+}
 
 void initTFT()
 { // Initialise the TFT screen
@@ -402,6 +418,7 @@ void setup(void)
 	Serial.println("Booting");
 	pinMode(WIFI_AP_PIN, INPUT_PULLUP);
 	pinMode(WIFI_STATUS_PIN, OUTPUT);
+	init_watchdog();
 	initTFT();
 	pinMode(SSR_PIN, OUTPUT);
 	setupTFT();
@@ -452,6 +469,7 @@ void setup(void)
 
 void loop(void)
 {
+	timerWrite(timer, 0); // feed the watchdog
 	_iotWebConf.doLoop();
 	_controller.run();
 	if (WiFi.isConnected() && _MqttClient.connected())
