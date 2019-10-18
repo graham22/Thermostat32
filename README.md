@@ -1,6 +1,3 @@
-# ESPThermostat
-ESP32 thermostat
-
 <h1>ESP32 thermostat</h1>
 
 ![Alt text](http://graham22.github.io/ESPThermostat/Pictures/Display1.png)
