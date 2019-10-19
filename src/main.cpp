@@ -12,8 +12,8 @@
 #define THERMISTOR_POWER_PIN 25
 #define SSR_PIN 5
 #define TFT_LED_PIN 32
-#define WIFI_STATUS_PIN 17  //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
-#define WIFI_AP_PIN 16		// pull down to force WIFI AP mode
+#define WIFI_STATUS_PIN 17 //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
+#define WIFI_AP_PIN 16	 // pull down to force WIFI AP mode
 
 // display coordinates
 #define CURRENT_TEMPERATURE_X 20
@@ -24,13 +24,16 @@
 #define ARROW_Y 20
 #define POWER_LED_X 30
 #define POWER_LED_Y 20
+#define WIFI_LED_X 300
+#define WIFI_LED_Y 10
 
 // Limits
 #define MAX_TEMPERATURE 27
 #define MIN_TEMPERATURE 10
 #define DISPLAY_TIMOUT 60
 #define STR_LEN IOTWEBCONF_WORD_LEN
-#define WATCHDOG_TIMER 5000 //time in ms to trigger the watchdog
+#define AP_TIMEOUT 10000
+#define WATCHDOG_TIMER 10000 //time in ms to trigger the watchdog
 
 //WIFI
 // -- Configuration specific key. The value should be modified if config structure was changed.
@@ -70,12 +73,19 @@ TFT_eSPI _tft = TFT_eSPI();
 float _targetTemperature = 21.5;
 Thermometer _thermometer(THERMISTOR_SENSOR_PIN, THERMISTOR_POWER_PIN, 3.38);
 boolean _power_on = false;
+boolean _wifi_on = false;
 bool _setTemperatureChanged = false;
 u_int _display_timer;
 const char S_JSON_COMMAND_NVALUE[] PROGMEM = "{\"%s\":%d}";
 const char S_JSON_COMMAND_LVALUE[] PROGMEM = "{\"%s\":%lu}";
 const char S_JSON_COMMAND_SVALUE[] PROGMEM = "{\"%s\":\"%s\"}";
 const char S_JSON_COMMAND_HVALUE[] PROGMEM = "{\"%s\":\"#%X\"}";
+
+const uint8_t wifi_Symbol[33] PROGMEM={ // WIFI symbol
+  	0x00, 0x00, 0x00, 0x00, 0xF0, 0x0F, 0x1C, 0x38,
+	0x07, 0x60, 0xE1, 0xC7, 0x78, 0x1E, 0x0C, 0x30, 
+	0x80, 0x01, 0xE0, 0x07, 0x30, 0x0C, 0x00, 0x00, 
+  	0x80, 0x01, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00 };
 
 void IRAM_ATTR resetModule()
 {
@@ -85,10 +95,22 @@ void IRAM_ATTR resetModule()
 
 void init_watchdog()
 {
-	timer = timerBegin(0, 80, true);					  //timer 0, div 80
-	timerAttachInterrupt(timer, &resetModule, true);	  //attach callback
-	timerAlarmWrite(timer, WATCHDOG_TIMER * 1000, false); //set time in us
-	timerAlarmEnable(timer);							  //enable interrupt
+	if (timer == NULL)
+	{
+		timer = timerBegin(0, 80, true);					  //timer 0, div 80
+		timerAttachInterrupt(timer, &resetModule, true);	  //attach callback
+		timerAlarmWrite(timer, WATCHDOG_TIMER * 1000, false); //set time in us
+		timerAlarmEnable(timer);							  //enable interrupt
+		Serial.println("watchdog timer initialized");
+	}
+}
+
+void feed_watchdog()
+{
+	if (timer != NULL)
+	{
+		timerWrite(timer, 0); // feed the watchdog
+	}
 }
 
 void initTFT()
@@ -97,17 +119,9 @@ void initTFT()
 	_tft.setRotation(1); // Set the rotation before we calibrate
 	uint16_t calData[5] = {452, 3097, 460, 3107, 4};
 	_tft.setTouch(calData);
-	_tft.setTextSize(2);
-	_tft.fillScreen(TFT_BLACK);
-	_tft.setTextColor(TFT_GREEN, TFT_BLACK);
-	_tft.setCursor(POWER_LED_X, POWER_LED_Y);
-	_tft.printf("Initializing");
 	pinMode(TFT_LED_PIN, OUTPUT);
+	digitalWrite(TFT_LED_PIN, HIGH);
 	_display_timer = DISPLAY_TIMOUT;
-}
-
-void setupTFT()
-{
 	_tft.fillScreen(TFT_BLACK);
 	int xpos = ARROW_X;
 	int ypos = ARROW_Y;
@@ -122,7 +136,6 @@ void setupTFT()
 		xpos - 40, ypos - 60, // bottom left
 		xpos + 40, ypos - 60, // bottom right
 		TFT_BLUE);
-	digitalWrite(TFT_LED_PIN, HIGH);
 }
 
 void showTargetTemperature()
@@ -161,26 +174,35 @@ void wakeScreen()
 void runTFT()
 {
 	uint16_t x = 0, y = 0;
-	if (_tft.getTouch(&y, &x))
-	{ // x & y are reversed on this cheap tft
+	if (_tft.getTouch(&x, &y))
+	{
 		if (_display_timer > 0)
 		{
-			if (x > 150)
+			if (x > 200)
 			{
-				if (y < 160)
+				if (y < 120)
 				{
 					up();
-					// Serial.println("Up");
 				}
 				else
 				{
 					down();
-					// Serial.println("Down");
 				}
 			}
 		}
 		wakeScreen();
 	}
+	if (_wifi_on == false && WiFi.isConnected())
+	{
+		_wifi_on = true;
+		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_GREEN);
+	}
+	else if (_wifi_on == true && !WiFi.isConnected())
+	{
+		_wifi_on = false;
+		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_BLACK);
+	}
+		
 }
 
 void trimSlashes(const char *input, char *result)
@@ -196,13 +218,13 @@ void trimSlashes(const char *input, char *result)
 	result[j] = '\0';
 }
 
-void publish(const char *topic, const char *value)
+void publish(const char *topic, const char *value, boolean retained = false)
 {
 	if (_MqttClient.connected())
 	{
 		char buf[64];
 		sprintf(buf, "/%s/stat/%s", _mqttRootTopic, topic);
-		_MqttClient.publish(buf, value);
+		_MqttClient.publish(buf, value, retained);
 		Serial.print("Topic: ");
 		Serial.print(buf);
 		Serial.print(" Data: ");
@@ -210,7 +232,7 @@ void publish(const char *topic, const char *value)
 	}
 }
 
-void publish(const char *topic, const char *subtopic, float value)
+void publish(const char *topic, const char *subtopic, float value, boolean retained = false)
 {
 	char str_temp[6];
 	dtostrf(value, 2, 1, str_temp);
@@ -254,6 +276,7 @@ void runHeater()
 	{
 		_display_timer--;
 	}
+	feed_watchdog();
 }
 
 void MQTT_callback(char *topic, byte *payload, unsigned int data_len)
@@ -314,7 +337,7 @@ void runMQTT()
 			_MqttClient.setCallback(MQTT_callback);
 			publish("POWER", _power_on ? "ON" : "OFF");
 			publish("TEMPERATURE", "CURRENT_TEMPERATURE", _thermometer.Temperature());
-			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature);
+			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
 		}
 		else
 		{
@@ -326,7 +349,7 @@ void runMQTT()
 		if (_setTemperatureChanged)
 		{
 			_setTemperatureChanged = false;
-			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature);
+			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
 		}
 	}
 }
@@ -382,6 +405,7 @@ void wifiConnected()
 	_workerThreadPublish->onRun(publishTemperature);
 	_workerThreadPublish->setInterval(60000);
 	_controller.add(_workerThreadPublish);
+	init_watchdog();
 }
 
 void configSaved()
@@ -418,14 +442,13 @@ void setup(void)
 	Serial.println("Booting");
 	pinMode(WIFI_AP_PIN, INPUT_PULLUP);
 	pinMode(WIFI_STATUS_PIN, OUTPUT);
-	init_watchdog();
+
 	initTFT();
 	pinMode(SSR_PIN, OUTPUT);
-	setupTFT();
+	digitalWrite(SSR_PIN, HIGH);
 
 	_iotWebConf.setStatusPin(WIFI_STATUS_PIN);
 	_iotWebConf.setConfigPin(WIFI_AP_PIN);
-
 	_iotWebConf.addParameter(&mqttServerParam);
 	_iotWebConf.addParameter(&mqttPortParam);
 	_iotWebConf.addParameter(&mqttUserNameParam);
@@ -448,7 +471,7 @@ void setup(void)
 	}
 	else
 	{
-		_iotWebConf.setApTimeoutMs(10000);
+		_iotWebConf.setApTimeoutMs(AP_TIMEOUT);
 	}
 
 	// -- Set up required URL handlers on the web server.
@@ -469,7 +492,6 @@ void setup(void)
 
 void loop(void)
 {
-	timerWrite(timer, 0); // feed the watchdog
 	_iotWebConf.doLoop();
 	_controller.run();
 	if (WiFi.isConnected() && _MqttClient.connected())
