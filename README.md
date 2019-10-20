@@ -12,6 +12,11 @@ The element is controled by a 40A Solid State Relay.
   
 The thermostat includes support for MQTT. Please see wiki for details.
 
+Home Assistant View
+<p align="center">
+  <img src="./Pictures/HASS.PNG" width="640"/>
+</p>
+
 <p>
 Development environment used is Visual Studio CODE with the following extensions
 <ul>
