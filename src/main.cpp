@@ -24,7 +24,7 @@
 #define ARROW_Y 20
 #define POWER_LED_X 30
 #define POWER_LED_Y 20
-#define WIFI_LED_X 300
+#define WIFI_LED_X 50
 #define WIFI_LED_Y 10
 
 // Limits
@@ -34,6 +34,13 @@
 #define STR_LEN IOTWEBCONF_WORD_LEN
 #define AP_TIMEOUT 10000
 #define WATCHDOG_TIMER 10000 //time in ms to trigger the watchdog
+
+enum Mode
+{
+	undefined,
+	off,
+	heat
+};
 
 //WIFI
 // -- Configuration specific key. The value should be modified if config structure was changed.
@@ -54,6 +61,8 @@ char _mqttPort[5];
 char _mqttUserName[STR_LEN];
 char _mqttUserPassword[STR_LEN];
 char _mqttRootTopic[STR_LEN];
+char _mqttTemperatureCmndTopic[STR_LEN * 2];
+char _mqttModeCmndTopic[STR_LEN * 2];
 
 IotWebConfParameter mqttServerParam = IotWebConfParameter("MQTT server", "mqttServer", _mqttServer, STR_LEN);
 IotWebConfParameter mqttPortParam = IotWebConfParameter("MQTT port", "mqttSPort", _mqttPort, 5, "text", NULL, "8080");
@@ -72,20 +81,21 @@ PubSubClient _MqttClient(_EspClient);
 TFT_eSPI _tft = TFT_eSPI();
 float _targetTemperature = 21.5;
 Thermometer _thermometer(THERMISTOR_SENSOR_PIN, THERMISTOR_POWER_PIN, 3.38);
-boolean _power_on = false;
+boolean _heating_element_on = false;
+Mode _requested_mode = undefined;
+Mode _current_mode = undefined;
 boolean _wifi_on = false;
-bool _setTemperatureChanged = false;
 u_int _display_timer;
 const char S_JSON_COMMAND_NVALUE[] PROGMEM = "{\"%s\":%d}";
 const char S_JSON_COMMAND_LVALUE[] PROGMEM = "{\"%s\":%lu}";
 const char S_JSON_COMMAND_SVALUE[] PROGMEM = "{\"%s\":\"%s\"}";
 const char S_JSON_COMMAND_HVALUE[] PROGMEM = "{\"%s\":\"#%X\"}";
 
-const uint8_t wifi_Symbol[33] PROGMEM={ // WIFI symbol
-  	0x00, 0x00, 0x00, 0x00, 0xF0, 0x0F, 0x1C, 0x38,
-	0x07, 0x60, 0xE1, 0xC7, 0x78, 0x1E, 0x0C, 0x30, 
-	0x80, 0x01, 0xE0, 0x07, 0x30, 0x0C, 0x00, 0x00, 
-  	0x80, 0x01, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00 };
+const uint8_t wifi_Symbol[33] PROGMEM = { // WIFI symbol
+	0x00, 0x00, 0x00, 0x00, 0xF0, 0x0F, 0x1C, 0x38,
+	0x07, 0x60, 0xE1, 0xC7, 0x78, 0x1E, 0x0C, 0x30,
+	0x80, 0x01, 0xE0, 0x07, 0x30, 0x0C, 0x00, 0x00,
+	0x80, 0x01, 0x80, 0x01, 0x00, 0x00, 0x00, 0x00};
 
 void IRAM_ATTR resetModule()
 {
@@ -138,86 +148,6 @@ void initTFT()
 		TFT_BLUE);
 }
 
-void showTargetTemperature()
-{
-	_tft.setTextSize(4);
-	_tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
-	_tft.drawFloat(_targetTemperature, 1, SET_TEMPERATURE_X, SET_TEMPERATURE_Y);
-}
-
-void up()
-{
-	if (_targetTemperature < MAX_TEMPERATURE)
-	{
-		_targetTemperature += 0.5;
-		showTargetTemperature();
-		_setTemperatureChanged = true;
-	}
-}
-
-void down()
-{
-	if (_targetTemperature > MIN_TEMPERATURE)
-	{
-		_targetTemperature -= 0.5;
-		showTargetTemperature();
-		_setTemperatureChanged = true;
-	}
-}
-
-void wakeScreen()
-{
-	digitalWrite(TFT_LED_PIN, HIGH);
-	_display_timer = DISPLAY_TIMOUT;
-}
-
-void runTFT()
-{
-	uint16_t x = 0, y = 0;
-	if (_tft.getTouch(&x, &y))
-	{
-		if (_display_timer > 0)
-		{
-			if (x > 200)
-			{
-				if (y < 120)
-				{
-					up();
-				}
-				else
-				{
-					down();
-				}
-			}
-		}
-		wakeScreen();
-	}
-	if (_wifi_on == false && WiFi.isConnected())
-	{
-		_wifi_on = true;
-		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_GREEN);
-	}
-	else if (_wifi_on == true && !WiFi.isConnected())
-	{
-		_wifi_on = false;
-		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_BLACK);
-	}
-		
-}
-
-void trimSlashes(const char *input, char *result)
-{
-	int i, j = 0;
-	for (i = 0; input[i] != '\0'; i++)
-	{
-		if (input[i] != '/' && input[i] != '\\')
-		{
-			result[j++] = input[i];
-		}
-	}
-	result[j] = '\0';
-}
-
 void publish(const char *topic, const char *value, boolean retained = false)
 {
 	if (_MqttClient.connected())
@@ -241,30 +171,146 @@ void publish(const char *topic, const char *subtopic, float value, boolean retai
 	publish(topic, buf);
 }
 
+void showTargetTemperature()
+{
+	_tft.setTextSize(4);
+	_tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+	if (_current_mode == heat)
+	{
+		_tft.drawFloat(_targetTemperature, 1, SET_TEMPERATURE_X, SET_TEMPERATURE_Y);
+		publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
+	}
+	else
+	{
+		_tft.drawString("Off   ", SET_TEMPERATURE_X, SET_TEMPERATURE_Y);
+	}
+}
+
+void up()
+{
+	if (_targetTemperature < MAX_TEMPERATURE)
+	{
+		_targetTemperature += 0.5;
+		showTargetTemperature();
+	}
+}
+
+void down()
+{
+	if (_targetTemperature > MIN_TEMPERATURE)
+	{
+		_targetTemperature -= 0.5;
+		showTargetTemperature();
+	}
+}
+
+void wakeScreen()
+{
+	digitalWrite(TFT_LED_PIN, HIGH);
+	_display_timer = DISPLAY_TIMOUT;
+}
+
+void trimSlashes(const char *input, char *result)
+{
+	int i, j = 0;
+	for (i = 0; input[i] != '\0'; i++)
+	{
+		if (input[i] != '/' && input[i] != '\\')
+		{
+			result[j++] = input[i];
+		}
+	}
+	result[j] = '\0';
+}
+
+void runTFT()
+{
+	uint16_t x = 0, y = 0;
+	if (_tft.getTouch(&x, &y))
+	{
+		if (_display_timer > 0)
+		{
+			if (x > 200)
+			{
+				if (_current_mode == heat)
+				{
+					if (y < 120)
+					{
+						up();
+					}
+					else
+					{
+						down();
+					}
+				}
+			}
+			else if (y > 200)
+			{
+				_requested_mode = _current_mode == heat ? off : heat; // toggle on/off
+			}
+		}
+		wakeScreen();
+	}
+	if (_wifi_on == false && WiFi.isConnected())
+	{
+		_wifi_on = true;
+		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_GREEN);
+	}
+	else if (_wifi_on == true && !WiFi.isConnected())
+	{
+		_wifi_on = false;
+		_tft.drawXBitmap(WIFI_LED_X, WIFI_LED_Y, wifi_Symbol, 16, 16, TFT_BLACK);
+	}
+}
+
+void actionHeater()
+{
+	if (_heating_element_on)
+	{
+		digitalWrite(SSR_PIN, HIGH);
+		_tft.fillCircle(POWER_LED_X, POWER_LED_Y, 10, TFT_RED);
+		publish("ACTION", "heating");
+	}
+	else
+	{
+		digitalWrite(SSR_PIN, LOW);
+		_tft.fillCircle(POWER_LED_X, POWER_LED_Y, 10, TFT_BLACK);
+		publish("ACTION", _current_mode == heat ? "idle" : "off");
+	}
+}
+
 void runHeater()
 {
 	float deg = _thermometer.Temperature();
 	_tft.setTextSize(8);
 	_tft.setTextColor(TFT_YELLOW, TFT_BLACK);
 	_tft.drawFloat(deg, 1, CURRENT_TEMPERATURE_X, CURRENT_TEMPERATURE_Y);
-	if (_targetTemperature > deg)
+	if (_current_mode != _requested_mode)
 	{
-		if (_power_on == false)
-		{
-			_power_on = true;
-			digitalWrite(SSR_PIN, HIGH);
-			_tft.fillCircle(POWER_LED_X, POWER_LED_Y, 10, TFT_RED);
-			publish("HEAT", "ON");
-		}
+		Serial.println("Mode change");
+		_current_mode = _requested_mode;
+		publish("MODE", _current_mode == heat ? "heat" : "off");
+		_heating_element_on = false;
+		actionHeater();
+		showTargetTemperature();
 	}
-	else
+	if (_current_mode == heat)
 	{
-		if (_power_on)
+		if (_targetTemperature > deg)
 		{
-			_power_on = false;
-			digitalWrite(SSR_PIN, LOW);
-			_tft.fillCircle(POWER_LED_X, POWER_LED_Y, 10, TFT_BLACK);
-			publish("HEAT", "OFF");
+			if (_heating_element_on == false)
+			{
+				_heating_element_on = true;
+				actionHeater();
+			}
+		}
+		else
+		{
+			if (_heating_element_on)
+			{
+				_heating_element_on = false;
+				actionHeater();
+			}
 		}
 	}
 	// screen saver timer
@@ -289,34 +335,46 @@ void MQTT_callback(char *topic, byte *payload, unsigned int data_len)
 		Serial.print((char)payload[i]);
 	}
 	Serial.println();
-
 	char *data = (char *)payload;
-	if (strncmp(data, "UP", data_len) == 0)
+	if (strcmp(_mqttTemperatureCmndTopic, topic) == 0)
 	{
-		up();
-	}
-	else if (strncmp(data, "DOWN", data_len) == 0)
-	{
-		down();
-	}
-	else
-	{
-		String inString = data;
-		float target = inString.toFloat();
-		if (target < MIN_TEMPERATURE)
+		if (strncmp(data, "UP", data_len) == 0)
 		{
-			_targetTemperature = MIN_TEMPERATURE;
+			up();
 		}
-		else if (target > MAX_TEMPERATURE)
+		else if (strncmp(data, "DOWN", data_len) == 0)
 		{
-			_targetTemperature = MAX_TEMPERATURE;
+			down();
 		}
 		else
 		{
-			_targetTemperature = target;
+			String inString = data;
+			float target = inString.toFloat();
+			if (target < MIN_TEMPERATURE)
+			{
+				_targetTemperature = MIN_TEMPERATURE;
+			}
+			else if (target > MAX_TEMPERATURE)
+			{
+				_targetTemperature = MAX_TEMPERATURE;
+			}
+			else
+			{
+				_targetTemperature = target;
+			}
+			showTargetTemperature();
 		}
-		showTargetTemperature();
-		_setTemperatureChanged = true;
+	}
+	else if (strcmp(_mqttModeCmndTopic, topic) == 0)
+	{
+		if (strncmp(data, "heat", data_len) == 0)
+		{
+			_requested_mode = heat;
+		}
+		else if (strncmp(data, "off", data_len) == 0)
+		{
+			_requested_mode = off;
+		}
 	}
 	wakeScreen();
 }
@@ -330,26 +388,15 @@ void runMQTT()
 		if (_MqttClient.connect("ESP_Thermostat", _mqttUserName, _mqttUserPassword))
 		{
 			Serial.println("MQTT connected");
-			publish("DEVICE", "ONLINE");
-			char buf[STR_LEN * 2];
-			sprintf(buf, "/%s/cmnd/TEMPERATURE", _mqttRootTopic);
-			_MqttClient.subscribe(buf);
+			_MqttClient.subscribe(_mqttTemperatureCmndTopic);
+			_MqttClient.subscribe(_mqttModeCmndTopic);
 			_MqttClient.setCallback(MQTT_callback);
-			publish("POWER", _power_on ? "ON" : "OFF");
 			publish("TEMPERATURE", "CURRENT_TEMPERATURE", _thermometer.Temperature());
 			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
 		}
 		else
 		{
 			Serial.println("Failed to connect to MQTT");
-		}
-	}
-	else
-	{
-		if (_setTemperatureChanged)
-		{
-			_setTemperatureChanged = false;
-			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
 		}
 	}
 }
@@ -406,6 +453,7 @@ void wifiConnected()
 	_workerThreadPublish->setInterval(60000);
 	_controller.add(_workerThreadPublish);
 	init_watchdog();
+	_requested_mode = off;
 }
 
 void configSaved()
@@ -445,7 +493,8 @@ void setup(void)
 
 	initTFT();
 	pinMode(SSR_PIN, OUTPUT);
-	digitalWrite(SSR_PIN, HIGH);
+	digitalWrite(SSR_PIN, LOW);
+	_current_mode = undefined;
 
 	_iotWebConf.setStatusPin(WIFI_STATUS_PIN);
 	_iotWebConf.setConfigPin(WIFI_AP_PIN);
@@ -472,6 +521,8 @@ void setup(void)
 	else
 	{
 		_iotWebConf.setApTimeoutMs(AP_TIMEOUT);
+		sprintf(_mqttTemperatureCmndTopic, "/%s/cmnd/TEMPERATURE", _mqttRootTopic);
+		sprintf(_mqttModeCmndTopic, "/%s/cmnd/MODE", _mqttRootTopic);
 	}
 
 	// -- Set up required URL handlers on the web server.
