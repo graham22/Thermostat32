@@ -10,23 +10,7 @@ The element is controled by a 40A Solid State Relay.
 </p>
 <p>
   
-The thermostat includes support for MQTT.
-
-<h2>MQTT status</h2>
-<ul>
-<li>/<root_topic>/stat/TEMPERATURE {"CURRENT_TEMPERATURE":"21.1"}</li>
-<li>/<root_topic>/stat/TEMPERATURE {"SET_TEMPERATURE":"22.5"}</li>
-<li>/<root_topic>/stat/DEVICE ONLINE</li>
-<li>/<root_topic>/stat/HEAT OFF - ON</li>
-</ul>
-<h2>MQTT commands</h2>
-<ul>
-<li>/<root_topic>/cmnd/TEMPERATURE UP</li>
-<li>/<root_topic>/cmnd/TEMPERATURE DOWN</li>
-<li>/<root_topic>/cmnd/TEMPERATURE 21.5</li>
-</ul>
-  
-</p>
+The thermostat includes support for MQTT. Please see wiki for details.
 
 <p>
 Development environment used is Visual Studio CODE with the following extensions
