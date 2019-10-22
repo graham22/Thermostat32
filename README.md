@@ -30,6 +30,8 @@ Development environment used is Visual Studio CODE with the following extensions
   <img src="./Pictures/SSR.png" width="640"/>
   <img src="./Pictures/PCB_TOP.jpg" width="640"/>
   <img src="./Pictures/Assembled circuit.jpg" width="640"/>
+  <img src="./Pictures/Display2.png" width="640"/>
+  <img src="./Pictures/Mounted.png" width="640"/>
 </p>
 
 ## License
