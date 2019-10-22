@@ -5,7 +5,7 @@
 </p>
 <p>
 The ESP Thermostat uses a ESP32-bit with an external antena, a 240 X 320 TFT touch display, and a 10K thermistor.
-The element is controled by a 40A Solid State Relay.
+The element is controled by a Solid State Relay.
 
 </p>
 <p>
