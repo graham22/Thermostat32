@@ -34,7 +34,7 @@
 #define DISPLAY_TIMOUT 60
 #define STR_LEN IOTWEBCONF_WORD_LEN
 #define AP_TIMEOUT 10000
-#define WATCHDOG_TIMER 10000 //time in ms to trigger the watchdog
+#define WATCHDOG_TIMER 60000 //time in ms to trigger the watchdog
 
 enum Mode
 {
@@ -45,7 +45,7 @@ enum Mode
 
 //WIFI
 // -- Configuration specific key. The value should be modified if config structure was changed.
-#define CONFIG_VERSION "V1.1"
+#define CONFIG_VERSION "V1.2"
 // -- Initial name of the Thing. Used e.g. as SSID of the own Access Point.
 const char _thingName[] = "ESPThermostat";
 
@@ -65,6 +65,7 @@ char _mqttRootTopic[STR_LEN];
 char _mqttTemperatureCmndTopic[STR_LEN * 2];
 char _mqttModeCmndTopic[STR_LEN * 2];
 char _savedTargetTemperature[5];
+char _savedMode[5];
 
 IotWebConfSeparator seperatorParam = IotWebConfSeparator("MQTT");
 IotWebConfParameter mqttServerParam = IotWebConfParameter("MQTT server", "mqttServer", _mqttServer, STR_LEN);
@@ -73,6 +74,7 @@ IotWebConfParameter mqttUserNameParam = IotWebConfParameter("MQTT user", "mqttUs
 IotWebConfParameter mqttUserPasswordParam = IotWebConfParameter("MQTT password", "mqttPass", _mqttUserPassword, STR_LEN, "password");
 IotWebConfParameter mqttRootTopicParam = IotWebConfParameter("MQTT root topic", "mqttSRootTopic", _mqttRootTopic, STR_LEN);
 IotWebConfParameter savedTargetTemperatureParam = IotWebConfParameter("Target temperature", "savedTargetTemperature", _savedTargetTemperature, 5, "number", NULL, NULL, "min='10' max='27'", false);
+IotWebConfParameter savedModeParam = IotWebConfParameter("Current Mode", "savedMode", _savedMode, 5, "number", NULL, NULL, NULL, false);
 
 hw_timer_t *timer = NULL;
 ThreadController _controller = ThreadController();
@@ -462,7 +464,6 @@ void wifiConnected()
 	_workerThreadMQTT->setInterval(5000);
 	_controller.add(_workerThreadMQTT);
 	init_watchdog();
-	_requested_mode = heat;
 }
 
 void configSaved()
@@ -508,12 +509,14 @@ void setup(void)
 	_iotWebConf.setStatusPin(WIFI_STATUS_PIN);
 	_iotWebConf.setConfigPin(WIFI_AP_PIN);
 	_iotWebConf.addParameter(&savedTargetTemperatureParam);
+	_iotWebConf.addParameter(&savedModeParam);
 	_iotWebConf.addParameter(&seperatorParam);
 	_iotWebConf.addParameter(&mqttServerParam);
 	_iotWebConf.addParameter(&mqttPortParam);
 	_iotWebConf.addParameter(&mqttUserNameParam);
 	_iotWebConf.addParameter(&mqttUserPasswordParam);
 	_iotWebConf.addParameter(&mqttRootTopicParam);
+	
 	_iotWebConf.setConfigSavedCallback(&configSaved);
 	_iotWebConf.setFormValidator(&formValidator);
 	_iotWebConf.setWifiConnectionCallback(&wifiConnected);
@@ -530,6 +533,8 @@ void setup(void)
 		_mqttRootTopic[0] = '\0';
 		_targetTemperature = DEFAULT_TARGET_TEMPERATURE;
 		dtostrf(_targetTemperature, 2, 1, _savedTargetTemperature);
+		_requested_mode = off;
+		ltoa(off, _savedMode, 10);
 	}
 	else
 	{
@@ -538,6 +543,7 @@ void setup(void)
 		sprintf(_mqttModeCmndTopic, "/%s/cmnd/MODE", _mqttRootTopic);
 		_targetTemperature = atof(_savedTargetTemperature);
 		_lastTargetTemperature = _targetTemperature;
+		_requested_mode = (Mode)atoi(_savedMode);
 	}
 
 	// -- Set up required URL handlers on the web server.
