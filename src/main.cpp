@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <ThreadController.h>
 #include <Thread.h>
 #include <SPI.h>
@@ -29,12 +30,13 @@
 
 // Limits
 #define DEFAULT_TARGET_TEMPERATURE 21.0
-#define MAX_TEMPERATURE 27
+#define MAX_TEMPERATURE 32
 #define MIN_TEMPERATURE 10
 #define DISPLAY_TIMOUT 60
-#define STR_LEN IOTWEBCONF_WORD_LEN
-#define AP_TIMEOUT 10000
+#define STR_LEN 64 // general string buffer size
+#define AP_TIMEOUT 30000
 #define WATCHDOG_TIMER 60000 //time in ms to trigger the watchdog
+#define TEMP_PRECISION 0.5
 
 enum Mode
 {
@@ -45,34 +47,29 @@ enum Mode
 
 //WIFI
 // -- Configuration specific key. The value should be modified if config structure was changed.
-#define CONFIG_VERSION "V1.2"
-// -- Initial name of the Thing. Used e.g. as SSID of the own Access Point.
-const char _thingName[] = "ESPThermostat";
-
-// -- Initial password to connect to the Thing, when it creates an own Access Point.
-const char _wifiInitialApPassword[] = "ESPThermostat";
+#define CONFIG_VERSION "V1.3"
+#define HOME_ASSISTANT_PREFIX "homeassistant" // MQTT prefix used in autodiscovery
 
 DNSServer _dnsServer;
 WebServer _webServer(80);
 HTTPUpdateServer _httpUpdater;
-IotWebConf _iotWebConf(_thingName, &_dnsServer, &_webServer, _wifiInitialApPassword, CONFIG_VERSION);
+IotWebConf _iotWebConf("ESPThermostat", &_dnsServer, &_webServer, "ESPThermostat", CONFIG_VERSION);
 
-char _mqttServer[STR_LEN];
+char _mqttServer[IOTWEBCONF_WORD_LEN];
 char _mqttPort[5];
-char _mqttUserName[STR_LEN];
-char _mqttUserPassword[STR_LEN];
-char _mqttRootTopic[STR_LEN];
-char _mqttTemperatureCmndTopic[STR_LEN * 2];
-char _mqttModeCmndTopic[STR_LEN * 2];
+char _mqttUserName[IOTWEBCONF_WORD_LEN];
+char _mqttUserPassword[IOTWEBCONF_WORD_LEN];
+char _mqttTemperatureCmndTopic[STR_LEN];
+char _mqttModeCmndTopic[STR_LEN];
 char _savedTargetTemperature[5];
 char _savedMode[5];
+char _mqttRootTopic[STR_LEN];
 
 IotWebConfSeparator seperatorParam = IotWebConfSeparator("MQTT");
-IotWebConfParameter mqttServerParam = IotWebConfParameter("MQTT server", "mqttServer", _mqttServer, STR_LEN);
+IotWebConfParameter mqttServerParam = IotWebConfParameter("MQTT server", "mqttServer", _mqttServer, IOTWEBCONF_WORD_LEN);
 IotWebConfParameter mqttPortParam = IotWebConfParameter("MQTT port", "mqttSPort", _mqttPort, 5, "text", NULL, "8080");
-IotWebConfParameter mqttUserNameParam = IotWebConfParameter("MQTT user", "mqttUser", _mqttUserName, STR_LEN);
-IotWebConfParameter mqttUserPasswordParam = IotWebConfParameter("MQTT password", "mqttPass", _mqttUserPassword, STR_LEN, "password");
-IotWebConfParameter mqttRootTopicParam = IotWebConfParameter("MQTT root topic", "mqttSRootTopic", _mqttRootTopic, STR_LEN);
+IotWebConfParameter mqttUserNameParam = IotWebConfParameter("MQTT user", "mqttUser", _mqttUserName, IOTWEBCONF_WORD_LEN);
+IotWebConfParameter mqttUserPasswordParam = IotWebConfParameter("MQTT password", "mqttPass", _mqttUserPassword, IOTWEBCONF_WORD_LEN, "password");
 IotWebConfParameter savedTargetTemperatureParam = IotWebConfParameter("Target temperature", "savedTargetTemperature", _savedTargetTemperature, 5, "number", NULL, NULL, "min='10' max='27'", false);
 IotWebConfParameter savedModeParam = IotWebConfParameter("Current Mode", "savedMode", _savedMode, 5, "number", NULL, NULL, NULL, false);
 
@@ -93,6 +90,7 @@ Mode _requested_mode = undefined;
 Mode _current_mode = undefined;
 boolean _wifi_on = false;
 u_int _display_timer;
+u_int _uniqueId;
 const char S_JSON_COMMAND_NVALUE[] PROGMEM = "{\"%s\":%d}";
 const char S_JSON_COMMAND_LVALUE[] PROGMEM = "{\"%s\":%lu}";
 const char S_JSON_COMMAND_SVALUE[] PROGMEM = "{\"%s\":\"%s\"}";
@@ -118,7 +116,6 @@ void init_watchdog()
 		timerAttachInterrupt(timer, &resetModule, true);	  //attach callback
 		timerAlarmWrite(timer, WATCHDOG_TIMER * 1000, false); //set time in us
 		timerAlarmEnable(timer);							  //enable interrupt
-		Serial.println("watchdog timer initialized");
 	}
 }
 
@@ -160,7 +157,7 @@ void publish(const char *topic, const char *value, boolean retained = false)
 	if (_MqttClient.connected())
 	{
 		char buf[64];
-		sprintf(buf, "/%s/stat/%s", _mqttRootTopic, topic);
+		sprintf(buf, "%s/stat/%s", _mqttRootTopic, topic);
 		_MqttClient.publish(buf, value, retained);
 		Serial.print("Topic: ");
 		Serial.print(buf);
@@ -197,7 +194,7 @@ void up()
 {
 	if (_targetTemperature < MAX_TEMPERATURE)
 	{
-		_targetTemperature += 0.5;
+		_targetTemperature += TEMP_PRECISION;
 		showTargetTemperature();
 	}
 }
@@ -206,7 +203,7 @@ void down()
 {
 	if (_targetTemperature > MIN_TEMPERATURE)
 	{
-		_targetTemperature -= 0.5;
+		_targetTemperature -= TEMP_PRECISION;
 		showTargetTemperature();
 	}
 }
@@ -391,12 +388,67 @@ void runMQTT()
 	{
 		int port = atoi(_mqttPort);
 		_MqttClient.setServer(_mqttServer, port);
-		if (_MqttClient.connect("ESP_Thermostat", _mqttUserName, _mqttUserPassword))
+		char willTopic[STR_LEN];
+		sprintf(_mqttRootTopic, "%s/%X/climate", _iotWebConf.getThingName(), _uniqueId);
+		sprintf(willTopic, "%s/tele/LWT", _mqttRootTopic);
+		sprintf(_mqttTemperatureCmndTopic, "%s/cmnd/TEMPERATURE", _mqttRootTopic);
+		sprintf(_mqttModeCmndTopic, "%s/cmnd/MODE", _mqttRootTopic);
+		if (_MqttClient.connect(_iotWebConf.getThingName(), _mqttUserName, _mqttUserPassword, willTopic, 0, false, "Offline"))
 		{
 			Serial.println("MQTT connected");
+			char buffer[STR_LEN];
+			char configurationTopic[64];
+			sprintf(configurationTopic, "%s/climate/%X/config", HOME_ASSISTANT_PREFIX, _uniqueId);
 			_MqttClient.subscribe(_mqttTemperatureCmndTopic);
 			_MqttClient.subscribe(_mqttModeCmndTopic);
 			_MqttClient.setCallback(MQTT_callback);
+			StaticJsonDocument<1024> doc; // MQTT discovery
+			doc["name"] = _iotWebConf.getThingName();
+			sprintf(buffer, "%X", _uniqueId);
+			doc["unique_id"] = buffer;
+			doc["mode_cmd_t"] = "~/cmnd/MODE";
+			doc["mode_stat_t"] = "~/stat/MODE";
+			doc["avty_t"] = "~/tele/LWT";
+			doc["pl_avail"] = "Online";
+			doc["pl_not_avail"] = "Offline";
+			doc["temp_cmd_t"] = "~/cmnd/TEMPERATURE";
+			doc["temp_stat_t"] = "~/stat/TEMPERATURE";
+			doc["temp_stat_tpl"] = "{{value_json.SET_TEMPERATURE}}";
+			doc["curr_temp_t"] = "~/stat/TEMPERATURE";
+			doc["curr_temp_tpl"] = "{{value_json.CURRENT_TEMPERATURE}}";
+			doc["action_topic"] = "~/stat/ACTION";
+			doc["min_temp"] = MIN_TEMPERATURE;
+			doc["max_temp"] = MAX_TEMPERATURE;
+			doc["temp_step"] = TEMP_PRECISION;
+			JsonArray array = doc.createNestedArray("modes");
+			array.add("off");
+			array.add("heat");
+			JsonObject device = doc.createNestedObject("device");
+			device["name"] = _iotWebConf.getThingName();
+			device["sw_version"] = CONFIG_VERSION;
+			device["manufacturer"] = "SkyeTracker";
+			sprintf(buffer, "ESP32-Bit (%X)", _uniqueId);
+			device["model"] = buffer;
+			JsonArray identifiers = device.createNestedArray("identifiers");
+			identifiers.add(_uniqueId);
+			doc["~"] = _mqttRootTopic;
+			String s;
+			serializeJson(doc, s);
+			if (_MqttClient.connected())
+			{
+				unsigned int msgLength = MQTT_MAX_HEADER_SIZE + 2 + strlen(configurationTopic) + s.length();
+				if (msgLength > MQTT_MAX_PACKET_SIZE)
+				{
+					Serial.print("**** Configuration payload exceeds MAX Packet Size: ");
+					Serial.println(msgLength);
+				}
+				else
+				{
+					_MqttClient.publish(configurationTopic, (const uint8_t *)s.c_str(), s.length(), true);
+				}
+				Serial.println(s.c_str());
+			}
+			_MqttClient.publish(willTopic, "Online");
 			publish("TEMPERATURE", "CURRENT_TEMPERATURE", _thermometer.Temperature());
 			publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
 		}
@@ -408,8 +460,8 @@ void runMQTT()
 	else
 	{
 		float currentTemperature = _thermometer.Temperature();
-		currentTemperature = roundf(currentTemperature*10.0f)/10.0f; // round to one decimal place
-		if (abs(_lastTemperatureReading - currentTemperature) > 0.2) // publish changes greater than .2 degrees in temperature
+		currentTemperature = roundf(currentTemperature * 10.0f) / 10.0f; // round to one decimal place
+		if (abs(_lastTemperatureReading - currentTemperature) > 0.2)	 // publish changes greater than .2 degrees in temperature
 		{
 			publish("TEMPERATURE", "CURRENT_TEMPERATURE", currentTemperature);
 			_lastTemperatureReading = currentTemperature;
@@ -435,7 +487,8 @@ void handleRoot()
 		return;
 	}
 	String s = "<!DOCTYPE html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>";
-	s += "<title>ESPThermostat</title></head><body>ESPThermostat";
+	s += "<title>ESPThermostat</title></head><body>";
+	s += _iotWebConf.getThingName();
 	s += "<ul>";
 	s += "<li>MQTT server: ";
 	s += _mqttServer;
@@ -469,17 +522,11 @@ void wifiConnected()
 void configSaved()
 {
 	Serial.println("Configuration was updated.");
-	char buf1[64];
-	trimSlashes(_mqttRootTopic, buf1);
-	strcpy(_mqttRootTopic, buf1);
-	//   needReset = true;
 }
 
 boolean formValidator()
 {
-	Serial.println("Validating form.");
 	boolean valid = true;
-
 	int l = _webServer.arg(mqttServerParam.getId()).length();
 	if (l < 3)
 	{
@@ -500,14 +547,19 @@ void setup(void)
 	Serial.println("Booting");
 	pinMode(WIFI_AP_PIN, INPUT_PULLUP);
 	pinMode(WIFI_STATUS_PIN, OUTPUT);
-
+	// generate unique id from mac address NIC segment
+	uint8_t chipid[6];
+	esp_efuse_mac_get_default(chipid);
+	_uniqueId = chipid[3] << 16;
+	_uniqueId += chipid[4] << 8;
+	_uniqueId += chipid[5];
 	initTFT();
 	pinMode(SSR_PIN, OUTPUT);
 	digitalWrite(SSR_PIN, LOW);
 	_current_mode = undefined;
-
 	_iotWebConf.setStatusPin(WIFI_STATUS_PIN);
 	_iotWebConf.setConfigPin(WIFI_AP_PIN);
+	// setup EEPROM parameters
 	_iotWebConf.addParameter(&savedTargetTemperatureParam);
 	_iotWebConf.addParameter(&savedModeParam);
 	_iotWebConf.addParameter(&seperatorParam);
@@ -515,13 +567,11 @@ void setup(void)
 	_iotWebConf.addParameter(&mqttPortParam);
 	_iotWebConf.addParameter(&mqttUserNameParam);
 	_iotWebConf.addParameter(&mqttUserPasswordParam);
-	_iotWebConf.addParameter(&mqttRootTopicParam);
-	
+	// setup callbacks for IotWebConf
 	_iotWebConf.setConfigSavedCallback(&configSaved);
 	_iotWebConf.setFormValidator(&formValidator);
 	_iotWebConf.setWifiConnectionCallback(&wifiConnected);
 	_iotWebConf.setupUpdateServer(&_httpUpdater);
-
 	boolean validConfig = _iotWebConf.init();
 	if (!validConfig)
 	{
@@ -530,7 +580,6 @@ void setup(void)
 		_mqttPort[0] = '\0';
 		_mqttUserName[0] = '\0';
 		_mqttUserPassword[0] = '\0';
-		_mqttRootTopic[0] = '\0';
 		_targetTemperature = DEFAULT_TARGET_TEMPERATURE;
 		dtostrf(_targetTemperature, 2, 1, _savedTargetTemperature);
 		_requested_mode = off;
@@ -539,18 +588,15 @@ void setup(void)
 	else
 	{
 		_iotWebConf.setApTimeoutMs(AP_TIMEOUT);
-		sprintf(_mqttTemperatureCmndTopic, "/%s/cmnd/TEMPERATURE", _mqttRootTopic);
-		sprintf(_mqttModeCmndTopic, "/%s/cmnd/MODE", _mqttRootTopic);
 		_targetTemperature = atof(_savedTargetTemperature);
 		_lastTargetTemperature = _targetTemperature;
 		_requested_mode = (Mode)atoi(_savedMode);
 	}
-
-	// -- Set up required URL handlers on the web server.
+	// Set up required URL handlers on the web server.
 	_webServer.on("/", handleRoot);
 	_webServer.on("/config", [] { _iotWebConf.handleConfig(); });
 	_webServer.onNotFound([]() { _iotWebConf.handleNotFound(); });
-
+	// setup worker threads
 	_thermometer.Init();
 	_workerThreadTFT->onRun(runTFT);
 	_workerThreadTFT->setInterval(250);
