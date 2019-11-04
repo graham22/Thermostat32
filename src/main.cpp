@@ -15,6 +15,7 @@
 #define TFT_LED_PIN 32
 #define WIFI_STATUS_PIN 17 //First it will light up (kept LOW), on Wifi connection it will blink, when connected to the Wifi it will turn off (kept HIGH).
 #define WIFI_AP_PIN 16	 // pull down to force WIFI AP mode
+#define KCT_CS 26 // MAX6675 CS 
 
 // display coordinates
 #define CURRENT_TEMPERATURE_X 20
@@ -547,7 +548,9 @@ void setup(void)
 	Serial.println("Booting");
 	pinMode(WIFI_AP_PIN, INPUT_PULLUP);
 	pinMode(WIFI_STATUS_PIN, OUTPUT);
-	// generate unique id from mac address NIC segment
+  	pinMode(KCT_CS, OUTPUT); // disable MAX6675 if installed, using Thermistor
+  	digitalWrite(KCT_CS, HIGH);
+  	// generate unique id from mac address NIC segment
 	uint8_t chipid[6];
 	esp_efuse_mac_get_default(chipid);
 	_uniqueId = chipid[3] << 16;
