@@ -1,4 +1,5 @@
 #include "Thermometer.h"
+#include "log.h"
 
 #ifdef MAX6675
 Thermometer::Thermometer(int ktcCLK, int ktcCS, int ktcSO, float offset)
@@ -69,8 +70,7 @@ float Thermometer::Temperature()
 float Thermometer::Temperature()
 {
 	double voltage = ReadVoltage();
-	// Serial.print("Analog reading "); 
-	// Serial.println(voltage);
+	logv("Thermometer Analog reading: %.1f", voltage);
 	double average = _voltRef / voltage - 1;
 	average = SERIESRESISTOR / average;
 	double steinhart;
