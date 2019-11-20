@@ -169,7 +169,7 @@ void Thermostat::runTFT()
             }
             else if (y > 200)
             {
-                _requested_mode = _current_mode == heat ? off : heat; // toggle on/off
+                setMode(_current_mode == heat ? off : heat); // toggle on/off
             }
         }
         wakeScreen();
@@ -237,6 +237,19 @@ void Thermostat::runHeater()
             }
         }
     }
+    float currentTemperature = _thermometer.Temperature();
+    currentTemperature = roundf(currentTemperature * 10.0f) / 10.0f; // round to one decimal place
+    if (abs(_lastTemperatureReading - currentTemperature) > 0.2)     // publish changes greater than .2 degrees in temperature
+    {
+        _iot.publish("TEMPERATURE", "CURRENT_TEMPERATURE", currentTemperature);
+        _lastTemperatureReading = currentTemperature;
+    }
+    if (_lastTargetTemperature != _targetTemperature) // save new target temperature into EEPROM if changed
+    {
+        _lastTargetTemperature = _targetTemperature;
+        _iot.SaveTargetTemperature(_targetTemperature);
+        showTargetTemperature();
+    }
     // screen saver timer
     if (_display_timer == 0)
     {
@@ -247,5 +260,14 @@ void Thermostat::runHeater()
         _display_timer--;
     }
     feed_watchdog();
+}
+
+void Thermostat::setMode(Mode v, boolean persist) // persist true saves to eeprom
+{
+    _requested_mode = v;
+    if (persist)
+    {
+        _iot.SaveMode(v);
+    }
 }
 }

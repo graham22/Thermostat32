@@ -46,7 +46,6 @@ public:
     void setTargetTemperature(float v)
     {
         _targetTemperature = v;
-        showTargetTemperature();
     }
     float getTargetTemperature()
     {
@@ -56,11 +55,7 @@ public:
     {
         return _currentTemperature;
     }
-    void setMode(Mode v)
-    {
-        _requested_mode = v;
-        showTargetTemperature();
-    }
+    void setMode(Mode v, boolean persist = true); // persist true saves to eeprom
     Mode getMode()
     {
         return _current_mode;

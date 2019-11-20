@@ -1,5 +1,4 @@
 #include "IOT.h"
-#include "Thermostat.h"
 #include "Log.h"
 
 ESPThermostat::IOT _iot = ESPThermostat::IOT();
@@ -89,6 +88,10 @@ void onMqttConnect(bool sessionPresent)
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
 	logi("Disconnected from MQTT. Reason: %d", (int8_t)reason);
+	if (WiFi.isConnected())
+	{
+		xTimerStart(mqttReconnectTimer, 0);
+	}
 }
 
 void connectToMqtt()
@@ -254,10 +257,16 @@ void IOT::Init()
 		_mqttPort[0] = '\0';
 		_mqttUserName[0] = '\0';
 		_mqttUserPassword[0] = '\0';
+		dtostrf(DEFAULT_TARGET_TEMPERATURE, 2, 1, _savedTargetTemperature);
+		_thermostat.setMode(off, false);
+		_thermostat.setTargetTemperature(DEFAULT_TARGET_TEMPERATURE);
+		ltoa(off, _savedMode, 10);
 	}
 	else
 	{
 		_iotWebConf.setApTimeoutMs(AP_TIMEOUT);
+		_thermostat.setTargetTemperature(atof(_savedTargetTemperature));
+		_thermostat.setMode((Mode)atoi(_savedMode), false);
 	}
 	// Set up required URL handlers on the web server.
 	_webServer.on("/", handleRoot);
@@ -292,6 +301,18 @@ void IOT::Run()
 	_iotWebConf.doLoop();
 }
 
+void IOT::SaveMode(int m)
+{
+	ltoa(m, _savedMode, 10);
+	_iotWebConf.configSave();
+}
+
+void IOT::SaveTargetTemperature(float t)
+{
+	dtostrf(t, 2, 1, _savedTargetTemperature);
+	_iotWebConf.configSave();
+}
+
 void IOT::publish(const char *subtopic, const char *value, boolean retained)
 {
 	if (_mqttClient.connected())
@@ -307,7 +328,7 @@ void IOT::publish(const char *topic, const char *subtopic, float value, boolean 
 	char str_temp[6];
 	dtostrf(value, 2, 1, str_temp);
 	char buf[256];
-	snprintf_P(buf, sizeof(buf), S_JSON_COMMAND_SVALUE, subtopic, str_temp);
+	snprintf_P(buf, sizeof(buf), "{\"%s\":\"%s\"}", subtopic, str_temp);
 	publish(topic, buf, retained);
 }
 
