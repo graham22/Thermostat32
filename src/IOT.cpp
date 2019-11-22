@@ -130,46 +130,54 @@ void onMqttMessage(char *topic, char *payload, AsyncMqttClientMessageProperties 
 {
 	logd("MQTT Message arrived [%s]  qos: %d len: %d index: %d total: %d", topic, properties.qos, len, index, total);
 	printHexString(payload, len);
+	char pl[16];
+	for (int i = 0; i < len; i++)
+	{
+		pl[i] = toupper(payload[i]);
+	}
+	pl[len] = 0;
 	if (strcmp(_mqttTemperatureCmndTopic, topic) == 0)
 	{
-		if (strncmp(payload, "UP", len) == 0)
+
+		if (strncmp(pl, "UP", len) == 0)
 		{
 			_thermostat.Up();
 		}
-		else if (strncmp(payload, "DOWN", len) == 0)
+		else if (strncmp(pl, "DOWN", len) == 0)
 		{
 			_thermostat.Down();
 		}
 		else
 		{
-			String inString = payload;
-			float target = inString.toFloat();
-			if (target < MIN_TEMPERATURE)
+			float target = atof(pl);
+			if (target != 0) // successful conversion to float?
 			{
-				_thermostat.setTargetTemperature(MIN_TEMPERATURE);
-			}
-			else if (target > MAX_TEMPERATURE)
-			{
-				_thermostat.setTargetTemperature(MAX_TEMPERATURE);
-			}
-			else
-			{
-				_thermostat.setTargetTemperature(target);
+				if (target < MIN_TEMPERATURE)
+				{
+					_thermostat.setTargetTemperature(MIN_TEMPERATURE);
+				}
+				else if (target > MAX_TEMPERATURE)
+				{
+					_thermostat.setTargetTemperature(MAX_TEMPERATURE);
+				}
+				else
+				{
+					_thermostat.setTargetTemperature(target);
+				}
 			}
 		}
 	}
 	else if (strcmp(_mqttModeCmndTopic, topic) == 0)
 	{
-		if (strncmp(payload, "heat", len) == 0)
+		if (strncmp(pl, "HEAT", len) == 0)
 		{
 			_thermostat.setMode(heat);
 		}
-		else if (strncmp(payload, "off", len) == 0)
+		else if (strncmp(pl, "OFF", len) == 0)
 		{
 			_thermostat.setMode(off);
 		}
 	}
-
 }
 
 IOT::IOT()

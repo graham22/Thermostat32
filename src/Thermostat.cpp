@@ -189,10 +189,9 @@ void Thermostat::runTFT()
 void Thermostat::actionHeater()
 {
     logd("_heating_element_on: %d", _heating_element_on);
-
     if (_heating_element_on)
     {
-            digitalWrite(SSR_PIN, HIGH);
+        digitalWrite(SSR_PIN, HIGH);
         _tft.fillCircle(POWER_LED_X, POWER_LED_Y, 10, TFT_RED);
         _iot.publish("ACTION", "heating");
     }
@@ -218,9 +217,16 @@ void Thermostat::runHeater()
         actionHeater();
         showTargetTemperature();
     }
+    float currentTemperature = _thermometer.Temperature();
+    currentTemperature = roundf(currentTemperature * 10.0f) / 10.0f; // round to one decimal place
+    if (abs(_lastTemperatureReading - currentTemperature) > 0.2)     // publish changes greater than .2 degrees in temperature
+    {
+        _iot.publish("TEMPERATURE", "CURRENT_TEMPERATURE", currentTemperature);
+        _lastTemperatureReading = currentTemperature;
+    }
     if (_current_mode == heat)
     {
-        if (_targetTemperature > _currentTemperature)
+        if (_targetTemperature > _lastTemperatureReading)
         {
             if (_heating_element_on == false)
             {
@@ -236,13 +242,6 @@ void Thermostat::runHeater()
                 actionHeater();
             }
         }
-    }
-    float currentTemperature = _thermometer.Temperature();
-    currentTemperature = roundf(currentTemperature * 10.0f) / 10.0f; // round to one decimal place
-    if (abs(_lastTemperatureReading - currentTemperature) > 0.2)     // publish changes greater than .2 degrees in temperature
-    {
-        _iot.publish("TEMPERATURE", "CURRENT_TEMPERATURE", currentTemperature);
-        _lastTemperatureReading = currentTemperature;
     }
     if (_lastTargetTemperature != _targetTemperature) // save new target temperature into EEPROM if changed
     {

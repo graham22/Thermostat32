@@ -77,7 +77,7 @@ private:
     Mode _current_mode = undefined;
     boolean _wifi_on = false;
     u_int _display_timer;
-    Thermometer _thermometer = Thermometer(THERMISTOR_SENSOR_PIN, THERMISTOR_POWER_PIN, 3.38);
+    Thermometer _thermometer = Thermometer(THERMISTOR_SENSOR_PIN, THERMISTOR_POWER_PIN, ESP_VOLTAGE_REFERENCE);
     ThreadController _controller = ThreadController();
     Thread *_workerThreadTFT = new Thread();
     Thread *_workerThreadHeat = new Thread();
