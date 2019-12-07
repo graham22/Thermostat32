@@ -31,7 +31,7 @@ public:
     void SaveMode(int m);
     void SaveTargetTemperature(float t);
     void publish(const char *subtopic, const char *value, boolean retained = false);
-    void publish(const char *topic, const char *subtopic, float value, boolean retained = false);
+    void publish(const char *topic, float value, boolean retained = false);
     void publishDiscovery();
 private:
 };

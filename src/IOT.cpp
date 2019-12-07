@@ -43,10 +43,8 @@ void IOT::publishDiscovery()
 	doc["pl_avail"] = "Online";
 	doc["pl_not_avail"] = "Offline";
 	doc["temp_cmd_t"] = "~/cmnd/TEMPERATURE";
-	doc["temp_stat_t"] = "~/stat/TEMPERATURE";
-	doc["temp_stat_tpl"] = "{{value_json.SET_TEMPERATURE}}";
-	doc["curr_temp_t"] = "~/stat/TEMPERATURE";
-	doc["curr_temp_tpl"] = "{{value_json.CURRENT_TEMPERATURE}}";
+	doc["temp_stat_t"] = "~/stat/SET_TEMPERATURE";
+	doc["curr_temp_t"] = "~/stat/CURRENT_TEMPERATURE";
 	doc["action_topic"] = "~/stat/ACTION";
 	doc["min_temp"] = MIN_TEMPERATURE;
 	doc["max_temp"] = MAX_TEMPERATURE;
@@ -79,10 +77,10 @@ void onMqttConnect(bool sessionPresent)
 	_mqttClient.subscribe(_mqttModeCmndTopic, 1);
 	_mqttClient.subscribe(_mqttTemperatureCmndTopic, 1);
 	_iot.publishDiscovery();
-	_mqttClient.publish(_willTopic, 0, false, "Online");
+	_mqttClient.publish(_willTopic, 0, true, "Online");
 	_iot.publish("MODE", _thermostat.getMode() == heat ? "heat" : "off");
-	_iot.publish("TEMPERATURE", "CURRENT_TEMPERATURE", _thermostat.getCurrentTemperature());
-	_iot.publish("TEMPERATURE", "SET_TEMPERATURE", _thermostat.getTargetTemperature(), true);
+	_iot.publish("CURRENT_TEMPERATURE", _thermostat.getCurrentTemperature());
+	_iot.publish("SET_TEMPERATURE", _thermostat.getTargetTemperature(), true);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
@@ -300,7 +298,7 @@ void IOT::Init()
 		_mqttClient.setServer(ip, port);
 		_mqttClient.setCredentials(_mqttUserName, _mqttUserPassword);
 		sprintf(_willTopic, "%s/tele/LWT", _mqttRootTopic);
-		_mqttClient.setWill(_willTopic, 0, false, "Offline");
+		_mqttClient.setWill(_willTopic, 0, true, "Offline");
 	}
 }
 
@@ -331,12 +329,10 @@ void IOT::publish(const char *subtopic, const char *value, boolean retained)
 	}
 }
 
-void IOT::publish(const char *topic, const char *subtopic, float value, boolean retained)
+void IOT::publish(const char *topic, float value, boolean retained)
 {
-	char str_temp[6];
-	dtostrf(value, 2, 1, str_temp);
 	char buf[256];
-	snprintf_P(buf, sizeof(buf), "{\"%s\":\"%s\"}", subtopic, str_temp);
+	snprintf_P(buf, sizeof(buf), "%.1f", value);
 	publish(topic, buf, retained);
 }
 

@@ -131,7 +131,7 @@ void Thermostat::showTargetTemperature()
     if (_current_mode == heat)
     {
         _tft.drawFloat(_targetTemperature, 1, SET_TEMPERATURE_X, SET_TEMPERATURE_Y);
-        _iot.publish("TEMPERATURE", "SET_TEMPERATURE", _targetTemperature, true);
+        _iot.publish("SET_TEMPERATURE", _targetTemperature, true);
     }
     else
     {
@@ -221,7 +221,7 @@ void Thermostat::runHeater()
     currentTemperature = roundf(currentTemperature * 10.0f) / 10.0f; // round to one decimal place
     if (abs(_lastTemperatureReading - currentTemperature) > 0.2)     // publish changes greater than .2 degrees in temperature
     {
-        _iot.publish("TEMPERATURE", "CURRENT_TEMPERATURE", currentTemperature);
+        _iot.publish("CURRENT_TEMPERATURE", currentTemperature);
         _lastTemperatureReading = currentTemperature;
     }
     if (_current_mode == heat)
