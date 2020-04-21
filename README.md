@@ -1,5 +1,6 @@
 <h1>ESP32 thermostat</h1>
 
+[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/graham22/ESPThermostat.svg?style=for-the-badge)](https://github.com/graham22/ESPThermostat/releases)
 <p align="center">
   <img src="./Pictures/Display1.png" width="640"/>
 </p>
